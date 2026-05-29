@@ -419,6 +419,7 @@ return {
       madaoRoutingPlanId: 'rp-openai',
       madaoProviderId: 'upstream-a',
       madaoCountry: 'GB',
+      madaoOperator: 'operator-a',
       madaoAutoPickCountry: false,
       madaoReusePhone: true,
       madaoMinPrice: '0.12',
@@ -452,6 +453,7 @@ return {
   assert.equal(api.getPayloadInput().madaoRoutingPlanId, 'rp-openai');
   assert.equal(api.getPayloadInput().madaoProviderId, 'upstream-a');
   assert.equal(api.getPayloadInput().madaoCountry, 'GB');
+  assert.equal(api.getPayloadInput().madaoOperator, 'operator-a');
   assert.equal(api.getPayloadInput().madaoAutoPickCountry, false);
   assert.equal(api.getPayloadInput().madaoReusePhone, true);
   assert.equal(api.getPayloadInput().madaoMinPrice, '0.12');

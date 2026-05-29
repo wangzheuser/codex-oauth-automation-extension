@@ -38,6 +38,7 @@ test('MaDao direct acquire sends only direct fields and normalizes activation da
     madaoRoutingPlanId: 'route-plan-should-not-be-sent',
     madaoProviderId: 'Upstream A!',
     madaoCountry: 'gb',
+    madaoOperator: 'Operator A!',
     madaoAutoPickCountry: 'false',
     madaoReusePhone: '1',
     madaoMinPrice: '0.01',
@@ -54,6 +55,9 @@ test('MaDao direct acquire sends only direct fields and normalizes activation da
     auto_pick_country: false,
     reuse_phone: true,
     country: 'GB',
+    metadata: {
+      operator: 'operatora',
+    },
     min_price: 0.01,
     max_price: 0.2,
   });

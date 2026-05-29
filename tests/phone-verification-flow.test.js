@@ -9214,6 +9214,7 @@ test('phone verification helper reacquires MaDao direct numbers after releasing 
     madaoRoutingPlanId: 'rp-stale',
     madaoProviderId: 'upstream-a',
     madaoCountry: 'gb',
+    madaoOperator: 'operator-a',
     madaoAutoPickCountry: false,
     madaoReusePhone: true,
     madaoMinPrice: '0.01',
@@ -9323,6 +9324,9 @@ test('phone verification helper reacquires MaDao direct numbers after releasing 
     auto_pick_country: false,
     reuse_phone: true,
     country: 'GB',
+    metadata: {
+      operator: 'operator-a',
+    },
     min_price: 0.01,
     max_price: 0.2,
   });

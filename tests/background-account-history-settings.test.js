@@ -71,6 +71,7 @@ test('background account history settings are normalized independently from hotm
     extractFunction('normalizeMaDaoIdentifier'),
     extractFunction('normalizeMaDaoProviderId'),
     extractFunction('normalizeMaDaoCountry'),
+    extractFunction('normalizeMaDaoOperator'),
     extractFunction('normalizeMaDaoPrice'),
     extractFunction('normalizePhonePreferredActivation'),
     extractFunction('normalizePhoneVerificationReplacementLimit'),
@@ -382,6 +383,7 @@ return {
   assert.equal(api.normalizePersistentSettingValue('madaoProviderId', ' Upstream A! '), 'upstreama');
   assert.equal(api.normalizePersistentSettingValue('madaoCountry', ' gb '), 'GB');
   assert.equal(api.normalizePersistentSettingValue('madaoCountry', 'ANY'), 'any');
+  assert.equal(api.normalizePersistentSettingValue('madaoOperator', ' Operator A! '), 'operatora');
   assert.equal(api.normalizePersistentSettingValue('madaoAutoPickCountry', 1), true);
   assert.equal(api.normalizePersistentSettingValue('madaoReusePhone', 0), false);
   assert.equal(api.normalizePersistentSettingValue('madaoMinPrice', '0.123456'), '0.1235');

@@ -1453,6 +1453,7 @@ const PERSISTED_SETTING_DEFAULTS = {
   madaoRoutingPlanId: '',
   madaoProviderId: '',
   madaoCountry: '',
+  madaoOperator: '',
   madaoAutoPickCountry: true,
   madaoReusePhone: true,
   madaoMinPrice: '',
@@ -2243,6 +2244,13 @@ function normalizeMaDaoCountry(value = '') {
 
 function normalizeMaDaoPrice(value = '') {
   return normalizeHeroSmsMaxPrice(value);
+}
+
+function normalizeMaDaoOperator(value = '') {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, '');
 }
 
 function normalizePhonePreferredActivation(value) {
@@ -3595,6 +3603,8 @@ function normalizePersistentSettingValue(key, value) {
       return normalizeMaDaoProviderId(value);
     case 'madaoCountry':
       return normalizeMaDaoCountry(value);
+    case 'madaoOperator':
+      return normalizeMaDaoOperator(value);
     case 'madaoAutoPickCountry':
     case 'madaoReusePhone':
       return Boolean(value);

@@ -118,6 +118,7 @@ const PERSISTED_SETTING_DEFAULTS = {
   madaoRoutingPlanId: '',
   madaoProviderId: '',
   madaoCountry: '',
+  madaoOperator: '',
   madaoAutoPickCountry: true,
   madaoReusePhone: true,
   madaoMinPrice: '',
@@ -219,6 +220,7 @@ function normalizeMaDaoBaseUrl(value = '') {
 function normalizeMaDaoMode(value = '') { return String(value || '').trim().toLowerCase() === 'direct' ? 'direct' : DEFAULT_MADAO_MODE; }
 function normalizeMaDaoIdentifier(value = '') { return String(value || '').trim(); }
 function normalizeMaDaoProviderId(value = '') { return String(value || '').trim().toLowerCase().replace(/[^a-z0-9_-]+/g, ''); }
+function normalizeMaDaoOperator(value = '') { return String(value || '').trim().toLowerCase().replace(/[^a-z0-9_-]+/g, ''); }
 function normalizeMaDaoCountry(value = '') {
   const trimmed = String(value || '').trim();
   if (!trimmed) return '';
@@ -306,6 +308,7 @@ test('buildPersistentSettingsPayload writes canonical settings schema into persi
   assert.equal(payload.phoneSmsProvider, 'hero-sms');
   assert.equal(payload.madaoBaseUrl, DEFAULT_MADAO_BASE_URL_FOR_TEST);
   assert.equal(payload.madaoMode, DEFAULT_MADAO_MODE_FOR_TEST);
+  assert.equal(payload.madaoOperator, '');
   assert.equal(payload.madaoAutoPickCountry, true);
   assert.equal(payload.madaoReusePhone, true);
   assert.equal(Object.prototype.hasOwnProperty.call(payload, 'kiroRegion'), false);
@@ -724,6 +727,7 @@ test('buildPersistentSettingsPayload persists normalized MaDao flat settings out
     madaoRoutingPlanId: ' rp-openai ',
     madaoProviderId: ' Upstream A! ',
     madaoCountry: ' gb ',
+    madaoOperator: ' Operator A! ',
     madaoAutoPickCountry: 0,
     madaoReusePhone: 1,
     madaoMinPrice: '0.123456',
@@ -737,6 +741,7 @@ test('buildPersistentSettingsPayload persists normalized MaDao flat settings out
   assert.equal(payload.madaoRoutingPlanId, 'rp-openai');
   assert.equal(payload.madaoProviderId, 'upstreama');
   assert.equal(payload.madaoCountry, 'GB');
+  assert.equal(payload.madaoOperator, 'operatora');
   assert.equal(payload.madaoAutoPickCountry, false);
   assert.equal(payload.madaoReusePhone, true);
   assert.equal(payload.madaoMinPrice, '0.1235');

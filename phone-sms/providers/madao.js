@@ -255,6 +255,7 @@
       service: normalizeText(options?.service || state?.madaoServiceName, DEFAULT_SERVICE),
     };
     const country = normalizeCountry(options?.country || state?.madaoCountry);
+    const operator = normalizeProviderId(options?.operator || state?.madaoOperator);
     const minPrice = normalizePrice(options?.minPrice ?? state?.madaoMinPrice);
     const maxPrice = normalizePrice(options?.maxPrice ?? state?.madaoMaxPrice);
 
@@ -267,6 +268,9 @@
     request.reuse_phone = normalizeBoolean(options?.reusePhone ?? state?.madaoReusePhone, true);
     if (country) {
       request.country = country;
+    }
+    if (operator) {
+      request.metadata = { operator };
     }
     if (minPrice !== null) {
       request.min_price = minPrice;
