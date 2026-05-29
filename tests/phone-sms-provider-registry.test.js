@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 
 const source = fs.readFileSync('phone-sms/providers/registry.js', 'utf8');
+const nexSmsSource = fs.readFileSync('phone-sms/providers/nexsms.js', 'utf8');
 
 function loadRegistry(root = {}) {
   return new Function('self', `${source}; return self.PhoneSmsProviderRegistry;`)(root);
@@ -15,6 +16,9 @@ test('phone sms provider registry normalizes ids, order and labels consistently'
     },
     PhoneSmsFiveSimProvider: {
       createProvider: (deps = {}) => ({ provider: '5sim', deps }),
+    },
+    PhoneSmsNexSmsProvider: {
+      createProvider: (deps = {}) => ({ provider: 'nexsms', deps }),
     },
     PhoneSmsMaDaoProvider: {
       createProvider: (deps = {}) => ({ provider: 'madao', deps }),
@@ -52,5 +56,29 @@ test('phone sms provider registry normalizes ids, order and labels consistently'
     registry.createProvider('madao', { foo: 2 }),
     { provider: 'madao', deps: { foo: 2 } }
   );
-  assert.throws(() => registry.createProvider('nexsms'), /接码平台模块未加载：nexsms/);
+  assert.deepStrictEqual(
+    registry.createProvider('nexsms', { foo: 3 }),
+    { provider: 'nexsms', deps: { foo: 3 } }
+  );
+});
+
+test('phone sms provider registry creates the real NexSMS provider module', () => {
+  const root = {};
+  const nexSmsModule = new Function('self', `${nexSmsSource}; return self.PhoneSmsNexSmsProvider;`)(root);
+  const registry = loadRegistry({
+    PhoneSmsNexSmsProvider: nexSmsModule,
+  });
+
+  const provider = registry.createProvider('nexsms', { fetchImpl: async () => ({ ok: true, text: async () => '{}' }) });
+
+  assert.equal(provider.id, 'nexsms');
+  assert.equal(provider.label, 'NexSMS');
+  assert.equal(provider.defaultServiceCode, 'ot');
+  assert.deepStrictEqual(
+    provider.normalizeCountryOrder(['1:Thailand', { id: 2, label: 'United States' }, '1:Duplicate']),
+    [
+      { id: 1, label: 'Thailand' },
+      { id: 2, label: 'United States' },
+    ]
+  );
 });

@@ -88,6 +88,7 @@ test('sidepanel html exposes phone verification toggle and multi-provider SMS ro
   assert.match(html, /id="select-phone-sms-provider"/);
   assert.match(html, /\.\.\/phone-sms\/providers\/hero-sms\.js/);
   assert.match(html, /\.\.\/phone-sms\/providers\/five-sim\.js/);
+  assert.match(html, /\.\.\/phone-sms\/providers\/nexsms\.js/);
   assert.match(html, /\.\.\/phone-sms\/providers\/madao\.js/);
   assert.match(html, /\.\.\/phone-sms\/providers\/registry\.js/);
   assert.match(html, /<option value="hero-sms">HeroSMS<\/option>/);

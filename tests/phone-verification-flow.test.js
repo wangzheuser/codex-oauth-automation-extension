@@ -8955,6 +8955,148 @@ test('phone verification helper uses MaDao routing replace when add-phone reject
   assert.equal(currentState.currentPhoneActivation, null);
 });
 
+test('phone verification helper keeps failed MaDao activation separate after routing replace on invalid code', async () => {
+  const requests = [];
+  const submittedPhones = [];
+  const removedReusePhones = [];
+  let verificationSubmitCount = 0;
+  let currentState = {
+    phoneSmsProvider: 'madao',
+    madaoBaseUrl: 'http://127.0.0.1:7822',
+    madaoMode: 'routing_plan',
+    madaoRoutingPlanId: 'rp-openai',
+    verificationResendCount: 0,
+    phoneVerificationReplacementLimit: 2,
+    phoneCodeWaitSeconds: 15,
+    phoneCodeTimeoutWindows: 1,
+    phoneCodePollIntervalSeconds: 1,
+    phoneCodePollMaxRounds: 1,
+    currentPhoneActivation: null,
+    reusablePhoneActivation: null,
+  };
+  const helpers = api.createPhoneVerificationHelpers({
+    addLog: async () => {},
+    createMaDaoProvider: maDaoModule.createProvider,
+    ensureStep8SignupPageReady: async () => {},
+    fetchImpl: async (url, options = {}) => {
+      const parsedUrl = new URL(url);
+      requests.push({ url: parsedUrl, body: options.body ? JSON.parse(options.body) : null });
+      if (parsedUrl.pathname === '/api/acquire') {
+        return {
+          ok: true,
+          status: 200,
+          text: async () => JSON.stringify({
+            ticket_id: 'madao-old',
+            phone_number: '+441111111111',
+            service: 'openai',
+            country: 'GB',
+            routing_plan_id: 'rp-openai',
+            routing_item_id: 'route-old',
+            status: 'waiting_code',
+          }),
+        };
+      }
+      if (parsedUrl.pathname === '/api/routing/replace') {
+        return {
+          ok: true,
+          status: 200,
+          text: async () => JSON.stringify({
+            current_ticket_id: 'madao-old',
+            current_ticket_release: { ticket_id: 'madao-old', status: 'banned' },
+            next_ticket: {
+              ticket_id: 'madao-new',
+              phone_number: '+442222222222',
+              service: 'openai',
+              country: 'GB',
+              routing_plan_id: 'rp-openai',
+              routing_item_id: 'route-new',
+              status: 'waiting_code',
+            },
+          }),
+        };
+      }
+      if (parsedUrl.pathname === '/api/poll') {
+        return {
+          ok: true,
+          status: 200,
+          text: async () => JSON.stringify({
+            ticket_id: parsedUrl.pathname,
+            status: 'code_received',
+            code: requests.filter((entry) => entry.url.pathname === '/api/poll').length === 1 ? '111111' : '222222',
+          }),
+        };
+      }
+      if (parsedUrl.pathname === '/api/release') {
+        return {
+          ok: true,
+          status: 200,
+          text: async () => JSON.stringify({ ok: true }),
+        };
+      }
+      throw new Error(`Unexpected MaDao path: ${parsedUrl.pathname}`);
+    },
+    getOAuthFlowStepTimeoutMs: async (defaultTimeoutMs) => defaultTimeoutMs,
+    getState: async () => ({ ...currentState }),
+    sendToContentScriptResilient: async (_source, message) => {
+      if (message.type === 'SUBMIT_PHONE_NUMBER') {
+        submittedPhones.push(message.payload.phoneNumber);
+        return { phoneVerificationPage: true, url: 'https://auth.openai.com/phone-verification' };
+      }
+      if (message.type === 'SUBMIT_PHONE_VERIFICATION_CODE') {
+        verificationSubmitCount += 1;
+        if (verificationSubmitCount === 1) {
+          return {
+            invalidCode: true,
+            errorText: 'This phone number is already linked to another account',
+            phoneVerificationPage: true,
+            url: 'https://auth.openai.com/phone-verification',
+          };
+        }
+        assert.equal(message.payload.code, '222222');
+        return { success: true, consentReady: true, url: 'https://auth.openai.com/authorize' };
+      }
+      if (message.type === 'RETURN_TO_ADD_PHONE' || message.type === 'STEP8_GET_STATE') {
+        return { addPhonePage: true, phoneVerificationPage: false, url: 'https://auth.openai.com/add-phone' };
+      }
+      throw new Error(`Unexpected content-script message: ${message.type}`);
+    },
+    setState: async (updates) => {
+      if (Array.isArray(updates.reusablePhoneActivationPool)) {
+        updates.reusablePhoneActivationPool.forEach((entry) => removedReusePhones.push(entry.phoneNumber));
+      }
+      currentState = { ...currentState, ...updates };
+    },
+    sleepWithStop: async () => {},
+    throwIfStopped: () => {},
+  });
+
+  const result = await helpers.completePhoneVerificationFlow(1, {
+    addPhonePage: true,
+    phoneVerificationPage: false,
+    url: 'https://auth.openai.com/add-phone',
+  });
+
+  assert.deepStrictEqual(result, {
+    success: true,
+    consentReady: true,
+    url: 'https://auth.openai.com/authorize',
+  });
+  assert.deepStrictEqual(submittedPhones, ['+441111111111', '+442222222222']);
+  assert.deepStrictEqual(
+    requests.map((entry) => entry.url.pathname),
+    ['/api/acquire', '/api/poll', '/api/routing/replace', '/api/poll', '/api/release']
+  );
+  assert.deepStrictEqual(requests[2].body, {
+    ticket_id: 'madao-old',
+    release_action: 'ban',
+    failed_item_id: 'route-old',
+    reason: 'phone_number_used',
+  });
+  assert.deepStrictEqual(requests[4].body, { ticket_id: 'madao-new', action: 'finish' });
+  assert.equal(currentState.currentPhoneActivation, null);
+  assert.equal(removedReusePhones.includes('+442222222222'), false);
+});
+
 test('phone verification helper reacquires MaDao direct numbers after releasing rejected number', async () => {
   const requests = [];
   const submittedPhones = [];

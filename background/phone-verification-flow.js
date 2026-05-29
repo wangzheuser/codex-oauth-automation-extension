@@ -6963,8 +6963,8 @@
         );
       };
 
-      const rotateCurrentActivation = async (reason = '', releaseAction = 'cancel') => {
-        const normalizedActivation = normalizeActivation(activation);
+      const rotateCurrentActivation = async (activationCandidate, reason = '', releaseAction = 'cancel') => {
+        const normalizedActivation = normalizeActivation(activationCandidate);
         if (!normalizedActivation || getActivationProviderId(normalizedActivation, state) !== PHONE_SMS_PROVIDER_MADAO) {
           return { handled: false, nextActivation: null };
         }
@@ -6984,9 +6984,6 @@
         if (!nextActivation) {
           return { handled: true, nextActivation: null };
         }
-        activation = nextActivation;
-        shouldCancelActivation = true;
-        await persistCurrentActivation(nextActivation);
         await addLog(
           `步骤 9：MaDao 已通过路由替换切换到新号码 ${nextActivation.phoneNumber}。`,
           'info'
@@ -7004,13 +7001,19 @@
           `步骤 9：添加手机号失败后正在更换号码（${formatStep9Reason(failureReason)}，${usedNumberReplacementAttempts}/${maxNumberReplacementAttempts}）。`,
           'warn'
         );
-        const rotated = shouldCancelActivation && activation
+        const failedActivation = activation;
+        const rotated = shouldCancelActivation && failedActivation
           ? await rotateCurrentActivation(
+            failedActivation,
             failureCode || failureReason,
             getPhoneReplacementReleaseAction(failureCode || failureReason)
           )
           : { handled: false, nextActivation: null };
         if (rotated.nextActivation) {
+          activation = normalizeActivation(rotated.nextActivation);
+          shouldCancelActivation = true;
+          await clearCurrentActivation();
+          await persistCurrentActivation(activation);
           preferReuseExistingActivationOnAddPhone = false;
           addPhoneReentryWithSameActivation = 0;
           pageState = {
@@ -7126,9 +7129,14 @@
                   );
                 }
                 const rotated = shouldCancelActivation && activation
-                  ? await rotateCurrentActivation('returned_to_add_phone_loop', 'cancel')
+                  ? await rotateCurrentActivation(activation, 'returned_to_add_phone_loop', 'cancel')
                   : { handled: false, nextActivation: null };
-                if (!rotated.nextActivation) {
+                if (rotated.nextActivation) {
+                  activation = normalizeActivation(rotated.nextActivation);
+                  shouldCancelActivation = true;
+                  await clearCurrentActivation();
+                  await persistCurrentActivation(activation);
+                } else {
                   if (!rotated.handled && shouldCancelActivation && activation) {
                     await cancelPhoneActivation(state, activation);
                   }
@@ -7191,9 +7199,14 @@
                   );
                 }
                 const rotated = shouldCancelActivation && activation
-                  ? await rotateCurrentActivation('phone_number_used', 'ban')
+                  ? await rotateCurrentActivation(activation, 'phone_number_used', 'ban')
                   : { handled: false, nextActivation: null };
-                if (!rotated.nextActivation) {
+                if (rotated.nextActivation) {
+                  activation = normalizeActivation(rotated.nextActivation);
+                  shouldCancelActivation = true;
+                  await clearCurrentActivation();
+                  await persistCurrentActivation(activation);
+                } else {
                   if (!rotated.handled && shouldCancelActivation && activation) {
                     await banPhoneActivation(state, activation);
                   }
@@ -7282,6 +7295,8 @@
 
           let shouldReplaceNumber = false;
           let replaceReason = '';
+          let failedActivationForReplacement = null;
+          let replacementPreparedInAdvance = false;
 
           for (let attempt = 1; attempt <= DEFAULT_PHONE_SUBMIT_ATTEMPTS; attempt += 1) {
             throwIfStopped();
@@ -7291,6 +7306,7 @@
               await markPreferredActivationExhausted(codeResult.reason || 'sms_timeout');
               shouldReplaceNumber = true;
               replaceReason = codeResult.reason || 'sms_not_received';
+              failedActivationForReplacement = activation;
               break;
             }
 
@@ -7326,6 +7342,7 @@
               if (isPhoneNumberUsedError(invalidErrorText)) {
                 shouldReplaceNumber = true;
                 replaceReason = 'phone_number_used';
+                failedActivationForReplacement = activation;
                 await discardPhoneActivationFromReuse(
                   `目标站拒绝该号码（${invalidErrorText}）。`,
                   activation,
@@ -7336,13 +7353,19 @@
                     `自动白嫖复用号码 ${activation.phoneNumber} 被目标站拒绝。`
                   );
                 }
-                if (
-                  shouldCancelActivation
-                  && activation
-                  && getActivationProviderId(activation, state) !== PHONE_SMS_PROVIDER_MADAO
-                ) {
-                  await banPhoneActivation(state, activation);
-                  shouldCancelActivation = false;
+                if (shouldCancelActivation && activation) {
+                  const rotated = await rotateCurrentActivation(activation, 'phone_number_used', 'ban');
+                  if (rotated.nextActivation) {
+                    activation = normalizeActivation(rotated.nextActivation);
+                    shouldCancelActivation = true;
+                    replacementPreparedInAdvance = true;
+                  } else if (rotated.handled) {
+                    activation = null;
+                    shouldCancelActivation = false;
+                  } else {
+                    await banPhoneActivation(state, activation);
+                    shouldCancelActivation = false;
+                  }
                 }
                 await addLog(
                   `步骤 9：手机号被提示已使用（${invalidErrorText}），立即更换新号码。`,
@@ -7354,13 +7377,20 @@
               if (attempt >= DEFAULT_PHONE_SUBMIT_ATTEMPTS) {
                 shouldReplaceNumber = true;
                 replaceReason = 'code_rejected';
-                if (
-                  shouldCancelActivation
-                  && activation
-                  && getActivationProviderId(activation, state) !== PHONE_SMS_PROVIDER_MADAO
-                ) {
-                  await banPhoneActivation(state, activation);
-                  shouldCancelActivation = false;
+                failedActivationForReplacement = activation;
+                if (shouldCancelActivation && activation) {
+                  const rotated = await rotateCurrentActivation(activation, 'code_rejected', 'ban');
+                  if (rotated.nextActivation) {
+                    activation = normalizeActivation(rotated.nextActivation);
+                    shouldCancelActivation = true;
+                    replacementPreparedInAdvance = true;
+                  } else if (rotated.handled) {
+                    activation = null;
+                    shouldCancelActivation = false;
+                  } else {
+                    await banPhoneActivation(state, activation);
+                    shouldCancelActivation = false;
+                  }
                 }
                 await addLog(
                   `步骤 9：手机验证码连续 ${DEFAULT_PHONE_SUBMIT_ATTEMPTS} 次被拒（${invalidErrorText}），将更换号码。`,
@@ -7466,33 +7496,47 @@
             throw buildPhoneReplacementLimitError(maxNumberReplacementAttempts, replaceReason || 'unknown');
           }
 
-          const rotated = shouldCancelActivation && activation
-            ? await rotateCurrentActivation(
-              replaceReason || 'replace_number',
-              getPhoneReplacementReleaseAction(replaceReason || 'replace_number')
-            )
-            : { handled: false, nextActivation: null };
-          if (shouldRetireFreeReusableActivationOnFailure(await getState(), activation)) {
+          const failedActivation = failedActivationForReplacement || activation;
+          const rotated = replacementPreparedInAdvance
+            ? { handled: true, nextActivation: activation }
+            : (
+              shouldCancelActivation && failedActivation
+                ? await rotateCurrentActivation(
+                  failedActivation,
+                  replaceReason || 'replace_number',
+                  getPhoneReplacementReleaseAction(replaceReason || 'replace_number')
+                )
+                : { handled: false, nextActivation: null }
+            );
+          if (shouldRetireFreeReusableActivationOnFailure(await getState(), failedActivation)) {
             await retireFreeReusableActivation(
-              `自动白嫖复用号码 ${activation.phoneNumber} 在失败后被更换。`
+              `自动白嫖复用号码 ${failedActivation.phoneNumber} 在失败后被更换。`
             );
           }
-          if (isPhoneNumberUsedFailureReason(replaceReason)) {
+          if (isPhoneNumberUsedFailureReason(replaceReason) && failedActivation) {
             await discardPhoneActivationFromReuse(
               `目标站拒绝该号码（${replaceReason}）。`,
-              activation,
+              failedActivation,
               await getState()
             );
           }
-          if (!rotated.nextActivation) {
-            if (!rotated.handled && shouldCancelActivation && activation) {
-              await cancelPhoneActivation(state, activation);
+          await clearCurrentActivation();
+          if (rotated.nextActivation) {
+            activation = normalizeActivation(rotated.nextActivation);
+            shouldCancelActivation = Boolean(activation);
+            if (activation) {
+              await persistCurrentActivation(activation);
             }
-            await clearCurrentActivation();
+          } else {
+            if (!rotated.handled && shouldCancelActivation && failedActivation) {
+              await cancelPhoneActivation(state, failedActivation);
+            }
             activation = null;
             shouldCancelActivation = false;
           }
           addPhoneReentryWithSameActivation = 0;
+          failedActivationForReplacement = null;
+          replacementPreparedInAdvance = false;
 
           let returnResult = null;
           try {
