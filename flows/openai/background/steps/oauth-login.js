@@ -396,6 +396,18 @@
           }
 
           if (isStep6RecoverableResult(result)) {
+            if (isStep7AddPhoneResult(result) || isStep7PhoneVerificationResult(result)) {
+              const completionPayload = buildStep7CompletionPayload(
+                result,
+                { ...(currentState || {}), visibleStep: completionStep },
+                currentIdentifierType,
+                currentPhoneNumber
+              );
+
+              await completeNodeFromBackground(state?.nodeId || 'oauth-login', completionPayload);
+              return;
+            }
+
             const reasonMessage = result.message
               || `当前停留在${getLoginAuthStateLabel(result.state)}，准备重新执行步骤 ${completionStep}。`;
             throw new Error(reasonMessage);

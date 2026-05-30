@@ -4732,6 +4732,18 @@ function createStep6AddEmailSuccessResult(snapshot, options = {}) {
   };
 }
 
+function createStep6AddPhoneSuccessResult(snapshot, options = {}) {
+  return {
+    ...createStep6SuccessResult(snapshot, {
+      ...options,
+      via: options.via || 'add_phone_page',
+      loginVerificationRequestedAt: null,
+      skipLoginVerificationStep: true,
+    }),
+    addPhonePage: true,
+  };
+}
+
 function createStep6RecoverableResult(reason, snapshot, options = {}) {
   return {
     step6Outcome: 'recoverable',
@@ -5984,6 +5996,90 @@ async function waitForChooseAccountTransition(timeout = 15000) {
   return snapshot;
 }
 
+async function resolveChooseAccountTransitionResult(snapshot, payload, visibleStep, options = {}) {
+  const resolvedSnapshot = normalizeStep6Snapshot(snapshot || inspectLoginAuthState());
+  if (!resolvedSnapshot) {
+    return null;
+  }
+
+  const {
+    oauthConsentVia = 'choose_account_oauth_consent_page',
+    oauthAuthorizationVia = 'choose_account_oauth_authorization_route',
+    addEmailVia = 'choose_account_add_email_page',
+    addPhoneVia = 'choose_account_add_phone_page',
+    verificationVia = 'choose_account_verification_page',
+    phoneVerificationVia = 'choose_account_phone_verification_page',
+    timeoutReason = 'login_timeout_after_choose_account',
+    timeoutMessage = 'Clicking the existing OpenAI account entered the login timeout page.',
+  } = options;
+
+  if (resolvedSnapshot.state === 'oauth_consent_page') {
+    return createStep6OAuthConsentSuccessResult(resolvedSnapshot, {
+      via: oauthConsentVia,
+    });
+  }
+  if (resolvedSnapshot.oauthAuthorizationRoute || isPostChooseAccountOAuthRoute(resolvedSnapshot)) {
+    return createStep6OAuthConsentSuccessResult(resolvedSnapshot, {
+      via: oauthAuthorizationVia,
+    });
+  }
+  if (resolvedSnapshot.state === 'unknown' || resolvedSnapshot.state === 'choose_account_page') {
+    return null;
+  }
+  if (resolvedSnapshot.state === 'add_email_page') {
+    return createStep6AddEmailSuccessResult(resolvedSnapshot, {
+      via: addEmailVia,
+    });
+  }
+  if (resolvedSnapshot.state === 'add_phone_page') {
+    return createStep6AddPhoneSuccessResult(resolvedSnapshot, {
+      via: addPhoneVia,
+    });
+  }
+  if (resolvedSnapshot.state === 'verification_page') {
+    return finalizeStep6VerificationReady({
+      visibleStep,
+      loginVerificationRequestedAt: null,
+      via: verificationVia,
+    });
+  }
+  if (resolvedSnapshot.state === 'phone_verification_page') {
+    return finalizeStep6VerificationReady({
+      visibleStep,
+      loginVerificationRequestedAt: null,
+      via: phoneVerificationVia,
+      allowPhoneVerificationPage: true,
+    });
+  }
+  if (resolvedSnapshot.state === 'entry_page') {
+    return step6OpenLoginEntry(payload, resolvedSnapshot);
+  }
+  if (resolvedSnapshot.state === 'email_page') {
+    return step6LoginFromEmailPage(payload, resolvedSnapshot);
+  }
+  if (resolvedSnapshot.state === 'password_page') {
+    return step6LoginFromPasswordPage(payload, resolvedSnapshot);
+  }
+  if (resolvedSnapshot.state === 'phone_entry_page') {
+    return step6LoginFromPhonePage(payload, resolvedSnapshot);
+  }
+  if (resolvedSnapshot.state === 'login_timeout_error_page') {
+    const transition = await createStep6LoginTimeoutRecoveryTransition(
+      timeoutReason,
+      resolvedSnapshot,
+      timeoutMessage,
+      { visibleStep, allowPhoneVerificationPage: true }
+    );
+    if (transition.action === 'done') return transition.result;
+    if (transition.action === 'phone') return step6LoginFromPhonePage(payload, transition.snapshot);
+    if (transition.action === 'email') return step6LoginFromEmailPage(payload, transition.snapshot);
+    if (transition.action === 'password') return step6LoginFromPasswordPage(payload, transition.snapshot);
+    return transition.result;
+  }
+
+  return null;
+}
+
 async function step6ChooseExistingAccount(payload, snapshot) {
   const performOperationWithDelay = typeof getOperationDelayRunner === 'function'
     ? getOperationDelayRunner()
@@ -6014,29 +6110,12 @@ async function step6ChooseExistingAccount(payload, snapshot) {
     && chooseAccountAction.snapshot.state !== 'unknown'
     && chooseAccountAction.snapshot.state !== 'choose_account_page'
   ) {
-    const resolvedSnapshot = chooseAccountAction.snapshot;
-    if (resolvedSnapshot.state === 'oauth_consent_page') {
-      return createStep6OAuthConsentSuccessResult(resolvedSnapshot, {
-        via: 'choose_account_oauth_consent_page',
-      });
-    }
-    if (resolvedSnapshot.oauthAuthorizationRoute || isPostChooseAccountOAuthRoute(resolvedSnapshot)) {
-      return createStep6OAuthConsentSuccessResult(resolvedSnapshot, {
-        via: 'choose_account_oauth_authorization_route',
-      });
-    }
-    if (resolvedSnapshot.state === 'email_page') {
-      return step6LoginFromEmailPage(payload, resolvedSnapshot);
-    }
-    if (resolvedSnapshot.state === 'entry_page') {
-      return step6OpenLoginEntry(payload, resolvedSnapshot);
-    }
-    if (resolvedSnapshot.state === 'password_page') {
-      return step6LoginFromPasswordPage(payload, resolvedSnapshot);
-    }
-    if (resolvedSnapshot.state === 'phone_entry_page') {
-      return step6LoginFromPhonePage(payload, resolvedSnapshot);
-    }
+    const routedResult = await resolveChooseAccountTransitionResult(
+      chooseAccountAction.snapshot,
+      payload,
+      visibleStep
+    );
+    if (routedResult) return routedResult;
   }
 
   const target = chooseAccountAction.target;
@@ -6051,18 +6130,22 @@ async function step6ChooseExistingAccount(payload, snapshot) {
         simulateClick(otherAccountButton);
       });
       const otherAccountSnapshot = normalizeStep6Snapshot(await waitForChooseAccountTransition(15000));
-      if (otherAccountSnapshot.state === 'email_page') {
-        return step6LoginFromEmailPage(payload, otherAccountSnapshot);
-      }
-      if (otherAccountSnapshot.state === 'entry_page') {
-        return step6OpenLoginEntry(payload, otherAccountSnapshot);
-      }
-      if (otherAccountSnapshot.state === 'password_page') {
-        return step6LoginFromPasswordPage(payload, otherAccountSnapshot);
-      }
-      if (otherAccountSnapshot.state === 'phone_entry_page') {
-        return step6LoginFromPhonePage(payload, otherAccountSnapshot);
-      }
+      const otherAccountRoutedResult = await resolveChooseAccountTransitionResult(
+        otherAccountSnapshot,
+        payload,
+        visibleStep,
+        {
+          oauthConsentVia: 'choose_other_account_oauth_consent_page',
+          oauthAuthorizationVia: 'choose_other_account_oauth_authorization_route',
+          addEmailVia: 'choose_other_account_add_email_page',
+          addPhoneVia: 'choose_other_account_add_phone_page',
+          verificationVia: 'choose_other_account_verification_page',
+          phoneVerificationVia: 'choose_other_account_phone_verification_page',
+          timeoutReason: 'login_timeout_after_choose_other_account',
+          timeoutMessage: 'Clicking another-account login from OpenAI choose-account entered the login timeout page.',
+        }
+      );
+      if (otherAccountRoutedResult) return otherAccountRoutedResult;
       return createStep6RecoverableResult('choose_account_other_account_transition_stalled', otherAccountSnapshot, {
         message: `Clicked another-account login because ${email} was not listed, but the page did not enter a supported login state.`,
       });
@@ -6079,58 +6162,8 @@ async function step6ChooseExistingAccount(payload, snapshot) {
   });
 
   const nextSnapshot = normalizeStep6Snapshot(await waitForChooseAccountTransition(15000));
-  if (nextSnapshot.state === 'oauth_consent_page') {
-    return createStep6OAuthConsentSuccessResult(nextSnapshot, {
-      via: 'choose_account_oauth_consent_page',
-    });
-  }
-  if (nextSnapshot.oauthAuthorizationRoute || isPostChooseAccountOAuthRoute(nextSnapshot)) {
-    return createStep6OAuthConsentSuccessResult(nextSnapshot, {
-      via: 'choose_account_oauth_authorization_route',
-    });
-  }
-  if (nextSnapshot.state === 'add_email_page') {
-    return createStep6AddEmailSuccessResult(nextSnapshot, {
-      via: 'choose_account_add_email_page',
-    });
-  }
-  if (nextSnapshot.state === 'verification_page') {
-    return finalizeStep6VerificationReady({
-      visibleStep,
-      loginVerificationRequestedAt: null,
-      via: 'choose_account_verification_page',
-    });
-  }
-  if (nextSnapshot.state === 'phone_verification_page') {
-    return finalizeStep6VerificationReady({
-      visibleStep,
-      loginVerificationRequestedAt: null,
-      via: 'choose_account_phone_verification_page',
-      allowPhoneVerificationPage: true,
-    });
-  }
-  if (nextSnapshot.state === 'password_page') {
-    return step6LoginFromPasswordPage(payload, nextSnapshot);
-  }
-  if (nextSnapshot.state === 'email_page') {
-    return step6LoginFromEmailPage(payload, nextSnapshot);
-  }
-  if (nextSnapshot.state === 'phone_entry_page') {
-    return step6LoginFromPhonePage(payload, nextSnapshot);
-  }
-  if (nextSnapshot.state === 'login_timeout_error_page') {
-    const transition = await createStep6LoginTimeoutRecoveryTransition(
-      'login_timeout_after_choose_account',
-      nextSnapshot,
-      'Clicking the existing OpenAI account entered the login timeout page.',
-      { visibleStep }
-    );
-    if (transition.action === 'done') return transition.result;
-    if (transition.action === 'phone') return step6LoginFromPhonePage(payload, transition.snapshot);
-    if (transition.action === 'email') return step6LoginFromEmailPage(payload, transition.snapshot);
-    if (transition.action === 'password') return step6LoginFromPasswordPage(payload, transition.snapshot);
-    return transition.result;
-  }
+  const routedResult = await resolveChooseAccountTransitionResult(nextSnapshot, payload, visibleStep);
+  if (routedResult) return routedResult;
 
   return createStep6RecoverableResult('choose_account_transition_stalled', nextSnapshot, {
     message: `Clicked ${email} on OpenAI choose-account page, but the page did not enter a supported next state.`,

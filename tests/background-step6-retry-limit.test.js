@@ -483,6 +483,70 @@ test('step 7 forwards direct OAuth consent skip metadata when completing', async
   ]);
 });
 
+test('step 7 treats recoverable add-phone result as post-login phone handoff', async () => {
+  const source = fs.readFileSync('flows/openai/background/steps/oauth-login.js', 'utf8');
+  const globalScope = {};
+  const api = new Function('self', `${source}; return self.MultiPageBackgroundStep7;`)(globalScope);
+
+  const events = {
+    completions: [],
+    refreshCalls: 0,
+    sendCalls: 0,
+    logs: [],
+  };
+
+  const executor = api.createStep7Executor({
+    addLog: async (message, level = 'info') => {
+      events.logs.push({ message, level });
+    },
+    completeNodeFromBackground: async (step, payload) => {
+      events.completions.push({ step, payload });
+    },
+    getErrorMessage: (error) => error?.message || String(error || ''),
+    getLoginAuthStateLabel: (state) => state || 'unknown',
+    getState: async () => ({ email: 'user@example.com', password: 'secret' }),
+    isStep6RecoverableResult: (result) => result?.step6Outcome === 'recoverable',
+    isStep6SuccessResult: (result) => result?.step6Outcome === 'success',
+    refreshOAuthUrlBeforeStep6: async () => {
+      events.refreshCalls += 1;
+      return 'https://oauth.example/latest';
+    },
+    reuseOrCreateTab: async () => {},
+    sendToContentScriptResilient: async () => {
+      events.sendCalls += 1;
+      return {
+        step6Outcome: 'recoverable',
+        state: 'add_phone_page',
+        url: 'https://auth.openai.com/add-phone',
+        message: 'Clicked user@example.com on OpenAI choose-account page, but the page did not enter a supported next state.',
+      };
+    },
+    STEP6_MAX_ATTEMPTS: 3,
+    throwIfStopped: () => {},
+  });
+
+  await executor.executeStep7({
+    email: 'user@example.com',
+    password: 'secret',
+    visibleStep: 9,
+  });
+
+  assert.equal(events.refreshCalls, 1);
+  assert.equal(events.sendCalls, 1);
+  assert.deepStrictEqual(events.completions, [
+    {
+      step: 'oauth-login',
+      payload: {
+        loginVerificationRequestedAt: null,
+        skipLoginVerificationStep: true,
+        addPhonePage: true,
+        phoneVerificationPage: false,
+      },
+    },
+  ]);
+  assert.equal(events.logs.some(({ message }) => /准备重试/.test(message)), false);
+});
+
 test('step 7 forwards phone login identity payload when account identifier is phone', async () => {
   const source = fs.readFileSync('flows/openai/background/steps/oauth-login.js', 'utf8');
   const globalScope = {};
